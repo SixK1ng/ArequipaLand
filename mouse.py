@@ -1,13 +1,13 @@
+# Version 1.1 - 5/25/25
+
 import serial
 import time
 import threading
-import os
 from serial.tools import list_ports
 
 # Fallback COM port (used if auto-detection fails)
-fallback_com_port = "COM3"  # <---- Update this to your COM port
+fallback_com_port = "COM1"  # <---- UPDATE THIS TO YOUR COM PORT
 
-# Baud rate change command for "makcu"
 baud_change_command = bytearray([0xDE, 0xAD, 0x05, 0x00, 0xA5, 0x00, 0x09, 0x3D, 0x00])
 makcu = None
 makcu_lock = threading.Lock()
@@ -69,24 +69,27 @@ def change_baud_rate_to_4M():
         makcu.close()
         time.sleep(0.1)
         makcu = open_serial_port(makcu.name, 4000000)
-        if makcu:
+        if makcu and makcu.is_open:
             current_baud_rate = 4000000
             is_connected = True
             log("Switched to 4M baud successfully.")
+            log(f"makcu.is_open: {makcu.is_open}")
         else:
             is_connected = False
             log("Failed to reopen port at 4M baud.")
 
 def connect_to_com_port(port):
     global makcu, is_connected, current_com_port, current_baud_rate
-    if not is_connected:
-        makcu = open_serial_port(port, 115200)
-        if makcu:
-            current_com_port, current_baud_rate = port, 115200
-            log(f"Connected to {port} at 115200.")
-            change_baud_rate_to_4M()
-        else:
-            log(f"Initial connection to {port} at 115200 failed.")
+    is_connected = False  # Asegura estado inicial
+    makcu = open_serial_port(port, 115200)
+    if makcu and makcu.is_open:
+        current_com_port, current_baud_rate = port, 115200
+        log(f"Connected to {port} at 115200.")
+        change_baud_rate_to_4M()
+        log(f"is_connected after baud change: {is_connected}")
+    else:
+        log(f"Initial connection to {port} at 115200 failed.")
+        is_connected = False
 
 def close_com_port():
     global makcu, is_connected
@@ -133,13 +136,19 @@ def find_com_port():
     log("Device not found.")
     return None
 
-# Command to move the mouse
-def move(x, y):
-    # x and y can't be negative
-    x = x + 256 if x < 0 else x
-    y = y + 256 if y < 0 else y
-
-    # Send to makcu device using km.move(x, y)
-    command = f"km.move({x},{y})\r"  # Format the command as a string
-    makcu.write(command.encode())  # Send the command to the serial port
-    time.sleep(0.01)  # Small delay to ensure the command is processed
+class MakcuMouse:
+    def move(self, x, y):
+        """
+        Envía comando de movimiento al mouse Makcu por serial.
+        x, y: desplazamiento relativo (int).
+        """
+        if makcu_serial and makcu_serial.is_open and is_connected:
+            command = f"km.move({int(x)},{int(y)})\r".encode()
+            try:
+                with makcu_lock:
+                    makcu_serial.write(command)
+                    makcu_serial.flush()
+            except Exception as e:
+                log(f"Error sending move command: {e}")
+        else:
+            log(f"MakcuMouse: Port not open, move({x}, {y}) not sent.")
